@@ -1,0 +1,523 @@
+---
+title: "Analysis of World Economic Factors"
+author: "Benjamin Barnett"
+date: "5/7/2021"
+output: html_document
+---
+
+In this project, we study the population density, population growth rate, life expectancy at birth, real GDP per capita, unemployment rate, and Gini index coefficient of more than 200 countries to better understand living conditions around the world. We also aggregate the countries by continent to analyze common trends and evaluate factors associated with life expectancy at birth. Our data set takes population density from Worldometers and the remaining features from CIA World Factbook.
+
+<br>
+
+After we load the required packages, we store the country and continent data from the choroplethrMaps library for later use.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rvest)
+library(choroplethr)
+library(choroplethrMaps)
+library(GGally)
+library(data.table)
+library(tidyverse)
+library(ggbeeswarm)
+```
+
+
+```{r}
+data(country.map)
+choropleth <- unique(country.map$region)
+choropleth <- choropleth[order(choropleth)]
+head(choropleth)
+```
+
+
+```{r}
+ref <- unique(data.table(country.map$region, country.map$continent))
+ref <- data.frame(ref[,1], ref[,2]); colnames(ref) <- c("region", "continent")
+head(ref)
+```
+
+
+By plotting world heat maps for each feature, we can acquire great insight in overall living conditions. However, the scrapped and choroplethrMaps data each have different lists of countries. To solve this, we use the miss_overlap function, where missing_list returns the countries exclusive to the scraped data and overlap_list returns the countries exclusive to the choroplethrMaps data. 
+
+```{r}
+miss_overlap <- function(country_list){
+missing_list <- NULL; match_list <- NULL
+for(i in seq(length(country_list))){
+	tick <- 0
+	for(j in seq(length(choropleth))){
+		if(country_list[i] == choropleth[j]){
+			match_list <- c(match_list, country_list[i])
+			break
+			}
+		tick <- tick + 1
+		if(tick == length(choropleth)){
+			missing_list <- c(missing_list, country_list[i])
+			}
+		}
+	}
+overlap_list <- NULL
+for(i in seq(length(choropleth))){
+	tick <- 0
+	for(j in seq(length(match_list))){
+		if(choropleth[i] != match_list[j]){
+			tick <- tick + 1
+			}
+		if(tick == length(match_list)){
+			overlap_list <- c(overlap_list, choropleth[i])
+			}
+		}
+	}
+list(missing_list=missing_list, overlap_list=overlap_list)
+}
+```
+
+
+After scraping the population density data and tidying it, we run the miss_overlap function to find the country strings in the scraped data that need to be replaced to match the alternative country names in the choroplethrMaps data.
+
+```{r}
+url_1 <- "https://www.worldometers.info/world-population/population-by-country/"
+pop_density_tables <- url_1 %>% read_html() %>% html_nodes("table") %>% html_table()
+pop_density <- data.frame(pop_density_tables[[1]][2], pop_density_tables[[1]][6])
+
+colnames(pop_density) <- c("region", "value")
+pop_density[,1] <- tolower(pop_density[,1])
+pop_density[,2] <- as.numeric(gsub(",", "", pop_density[,2]))
+pop_density <- pop_density[order(pop_density),]
+pop_density <- na.omit(pop_density)
+
+miss_overlap(pop_density[,1])
+```
+
+Many countries are exclusive to the scraped data, but not that many countries are exclusive to the choroplethrMaps data. Because the world heat map only plots countries from the choroplethrMaps data, we use the miss_overlap output as a reference to check for alternative country names in the scraped data. Below are all of the countries from the scraped data sorted in alphabetical order.
+
+
+```{r}
+print(pop_density[,1])
+```
+
+Using overlap_list as a guide, we replace the country strings below and plot our map.
+
+
+```{r}
+pop_density[15,1] <- "the bahamas"
+pop_density[47,1] <- "republic of congo"
+pop_density[50,1] <- "ivory coast"
+pop_density[55,1] <- "czech republic"
+pop_density[60,1] <- "democratic republic of the congo"
+pop_density[67,1] <- "swaziland"
+pop_density[89,1] <- "guinea bissau"
+pop_density[155,1] <- "macedonia"
+pop_density[185,1] <- "republic of serbia"
+pop_density[208,1] <- "united republic of tanzania"
+pop_density[210,1] <- "east timor"
+pop_density[225,1] <- "united states of america"
+```
+
+
+```{r echo=FALSE}
+suppressWarnings(country_choropleth(pop_density))
+```
+
+The map above shows population density in P/ Km^2. We can see that many Eastern countries, including India, Pakistan, Vietnam, Japan, and the Philippines have high population densities relative to other parts of the world. Interestingly, the United Kingdom is also dense, which is likely due to its good soil and mild climate. On the other extreme, Canada, Argentina, Bolivia, Australia, Saudia Arabia, Russia, and Mongolia notably have very low population densities.
+
+<br>
+
+Using the dataframe ref to tidy the data by continent. The single country beloning to "Seven seas (open ocean)" was removed for visual purposes.
+
+```{r}
+pop_density_continent <- merge(pop_density, ref)[,-1]
+
+index_remove <- NULL
+for(i in seq(nrow(pop_density_continent))){
+	if(pop_density_continent[i,2] == "Seven seas (open ocean)"){
+		index_remove <- c(index_remove, i)
+		}
+	}
+
+pop_density_continent <- as_tibble(pop_density_continent[-index_remove,])
+```
+
+
+```{r echo=FALSE}
+pop_density_continent %>% ggplot(aes(continent, value)) + labs(x="", y="Population Density (P/Km^2)") + geom_boxplot() + geom_beeswarm()
+```
+
+We can see that Africa, Oceania, and South America have lower population densities, while parts of Asia and Europe are more densely populated.
+
+
+```{r}
+head(pop_density[order(pop_density[,2], decreasing=TRUE),])
+tail(pop_density[order(pop_density[,2], decreasing=TRUE),])
+```
+
+Interestingly, population densities range anywhere from over 20,000 people per km squared to less than 1 person per km squared. Monaco is the most populated country in the world, and Greenland is the least. (For clarification, the choropleth map shows the density of Denmark as a whole.)
+
+<br>
+
+Using the same process as before, we scrap population growth data and tidy it to plot on choropleth map.
+
+```{r}
+url_2 <- "https://www.cia.gov/the-world-factbook/field/population-growth-rate/country-comparison"
+pop_growth_tables <- url_2 %>% read_html() %>% html_nodes("table") %>% html_table()
+pop_growth <- data.frame(pop_growth_tables[[1]][2], pop_growth_tables[[1]][3])
+
+colnames(pop_growth) <- c("region", "value")
+pop_growth[,1] <- tolower(pop_growth[,1])
+pop_growth <- pop_growth[order(pop_growth),]
+pop_growth <- na.omit(pop_growth)
+
+pop_growth[16,1] <- "the bahamas"
+pop_growth[34,1] <- "myanmar"
+pop_growth[48,1] <- "democratic republic of the congo"
+pop_growth[49,1] <- "republic of congo"
+pop_growth[52,1] <- "ivory coast"
+pop_growth[57,1] <- "czech republic"
+pop_growth[68,1] <- "swaziland"
+pop_growth[77,1] <- "gambia"
+pop_growth[90,1] <- "guinea bissau"
+pop_growth[113,1] <- "north korea"
+pop_growth[114,1] <- "south korea"
+pop_growth[188,1] <- "republic of serbia"
+pop_growth[209,1] <- "united republic of tanzania"
+pop_growth[211,1] <- "east timor"
+pop_growth[225,1] <- "united states of america"
+```
+
+
+```{r echo=FALSE}
+suppressWarnings(country_choropleth(pop_growth))
+```
+
+We see that much of the world population growth is from parts of Africa. While most regions are increasing in population, some parts of Europe are actually experience a population decrease.
+
+<br>
+
+Using the dataframe ref to tidy the data by continent. The single country beloning to "Seven seas (open ocean)" was removed for visual purposes.
+
+```{r}
+pop_growth_continent <- merge(pop_growth, ref)[,-1]
+
+index_remove <- NULL
+for(i in seq(nrow(pop_growth_continent))){
+	if(pop_growth_continent[i,2] == "Seven seas (open ocean)"){
+		index_remove <- c(index_remove, i)
+		}
+	}
+
+pop_growth_continent <- as_tibble(pop_growth_continent[-index_remove,])
+pop_growth_continent %>% ggplot(aes(continent, value)) + labs(x="", y="Population Growth Rate") + geom_boxplot() + geom_beeswarm()
+```
+
+As expected, Africa has the highest population growth rates and Europe has the lowest. This implies that Africa's currently low population densities are likely to change sometime in the near future.
+
+
+```{r}
+head(pop_growth[order(pop_growth[,2], decreasing=TRUE),])
+tail(pop_growth[order(pop_growth[,2], decreasing=TRUE),])
+```
+
+Population growth ranges widely from gaining over 5 percent of its population per year to losing over 2 percent after accounting for births, deaths, and the balance of migrants. We also notice that the top five population growth rates are all from Africa.  
+
+<br>
+
+Scraping life expectancy data and tidying it to plot on choropleth map.
+
+```{r}
+url_3 <- "https://www.cia.gov/the-world-factbook/field/life-expectancy-at-birth/country-comparison"
+life_expectancy_tables <- url_3 %>% read_html() %>% html_nodes("table") %>% html_table()
+life_expectancy <- data.frame(life_expectancy_tables[[1]][2], life_expectancy_tables[[1]][3])
+
+colnames(life_expectancy) <- c("region", "value")
+life_expectancy[,1] <- tolower(life_expectancy[,1])
+life_expectancy <- life_expectancy[order(life_expectancy),]
+life_expectancy <- na.omit(life_expectancy)
+
+life_expectancy[15,1] <- "the bahamas"
+life_expectancy[33,1] <- "myanmar"
+life_expectancy[46,1] <- "democratic republic of the congo"
+life_expectancy[47,1] <- "republic of congo"
+life_expectancy[50,1] <- "ivory coast"
+life_expectancy[55,1] <- "czech republic"
+life_expectancy[66,1] <- "swaziland"
+life_expectancy[74,1] <- "gambia"
+life_expectancy[87,1] <- "guinea bissau"
+life_expectancy[109,1] <- "north korea"
+life_expectancy[110,1] <- "south korea"
+life_expectancy[180,1] <- "republic of serbia"
+life_expectancy[200,1] <- "united republic of tanzania"
+life_expectancy[202,1] <- "east timor"
+life_expectancy[215,1] <- "united states of america"
+```
+
+
+```{r echo=FALSE}
+suppressWarnings(country_choropleth(life_expectancy))
+```
+
+Unsurprisingly, Canada, Australia, Japan, and many parts of Europe have high life expectancies at birth. However, many parts of Africa have very low life expectancies at birth.
+
+<br>
+
+Using the dataframe ref to tidy the data by continent. The single country beloning to "Seven seas (open ocean)" was removed for visual purposes.
+
+```{r}
+life_expectancy_continent <- merge(life_expectancy, ref)[,-1]
+
+index_remove <- NULL
+for(i in seq(nrow(life_expectancy_continent))){
+	if(life_expectancy_continent[i,2] == "Seven seas (open ocean)"){
+		index_remove <- c(index_remove, i)
+		}
+	}
+
+life_expectancy_continent <- as_tibble(life_expectancy_continent[-index_remove,])
+life_expectancy_continent %>% ggplot(aes(continent, value)) + labs(x="", y="Life Expectancy at Birth") + geom_boxplot() + geom_beeswarm()
+```
+
+There is a clear difference in life expectancy at birth in Africa compared to other continents. While Europe has the highest median life expectancy at birth, the country with the highest life expectancy at birth is actually in Asia.
+
+
+```{r}
+head(life_expectancy[order(life_expectancy[,2], decreasing=TRUE),])
+tail(life_expectancy[order(life_expectancy[,2], decreasing=TRUE),])
+```
+
+Life expectancy at birth ranges anywhere from over 85 years to fewer than 60 years. Though Afghanistan has the lowest life expectancy at birth, the next bottom four countries are in Africa. 
+
+<br>
+
+Scraping real GDP per capita and tidying it to plot on choropleth map.
+
+```{r}
+url_4 <- "https://www.cia.gov/the-world-factbook/field/real-gdp-per-capita/country-comparison"
+real_gdp_tables <- url_4 %>% read_html() %>% html_nodes("table") %>% html_table()
+real_gdp <- data.frame(real_gdp_tables[[1]][2], real_gdp_tables[[1]][3])
+
+colnames(real_gdp) <- c("region", "value")
+real_gdp[,1] <- tolower(real_gdp[,1])
+real_gdp[,2] <- gsub("\\$", "", real_gdp[,2])
+real_gdp[,2] <- as.numeric(gsub(",", "", real_gdp[,2]))
+real_gdp <- real_gdp[order(real_gdp),]
+real_gdp <- na.omit(real_gdp)
+
+real_gdp[15,1] <- "the bahamas"
+real_gdp[33,1] <- "myanmar"
+real_gdp[46,1] <- "democratic republic of the congo"
+real_gdp[47,1] <- "republic of congo"
+real_gdp[50,1] <- "ivory coast"
+real_gdp[55,1] <- "czech republic"
+real_gdp[66,1] <- "swaziland"
+real_gdp[75,1] <- "gambia"
+real_gdp[88,1] <- "guinea bissau"
+real_gdp[110,1] <- "north korea"
+real_gdp[111,1] <- "south korea"
+real_gdp[181,1] <- "republic of serbia"
+real_gdp[200,1] <- "united republic of tanzania"
+real_gdp[202,1] <- "east timor"
+real_gdp[216,1] <- "united states of america"
+```
+
+
+```{r echo=FALSE}
+suppressWarnings(country_choropleth(real_gdp))
+```
+
+From the plot, we see that the United States, Canada, Australia, Saudi Arabia, and many parts of Europe have high GDP per capita. On the other hand, many parts of Africa have low GDP per capita.
+
+<br>
+
+Using the dataframe ref to tidy the data by continent. The single country beloning to "Seven seas (open ocean)" was removed for visual purposes.
+
+```{r}
+real_gdp_continent <- merge(real_gdp, ref)[,-1]
+
+index_remove <- NULL
+for(i in seq(nrow(real_gdp_continent))){
+	if(real_gdp_continent[i,2] == "Seven seas (open ocean)"){
+		index_remove <- c(index_remove, i)
+		}
+	}
+
+real_gdp_continent <- as_tibble(real_gdp_continent[-index_remove,])
+real_gdp_continent %>% ggplot(aes(continent, log10(value))) + labs(x="", y="Log 10 of Real GDP per capita") + geom_boxplot() + geom_beeswarm()
+```
+
+For a better visual, this plot shows the log 10 of real GDP per capita. Africa has the lowest median compared to other continents, though Asia and Oceania have notably large spreads.
+
+
+```{r}
+head(real_gdp[order(real_gdp[,2], decreasing=TRUE),])
+tail(real_gdp[order(real_gdp[,2], decreasing=TRUE),])
+```
+
+We see that real GDP per capita ranges anywhere from over 100,000 to less than 1000. Africa notably has the top five lowest real GDP per capita.
+
+<br>
+
+Scraping unemployment rate data and tidying it to plot on choropleth map.
+
+```{r}
+url_5 <- "https://www.cia.gov/the-world-factbook/field/unemployment-rate/country-comparison"
+unemployment_tables <- url_5 %>% read_html() %>% html_nodes("table") %>% html_table()
+unemployment <- data.frame(unemployment_tables[[1]][2], unemployment_tables[[1]][3])
+
+colnames(unemployment) <- c("region", "value")
+unemployment[,1] <- tolower(unemployment[,1])
+unemployment <- unemployment[order(unemployment),]
+unemployment <- na.omit(unemployment)
+
+unemployment[15,1] <- "the bahamas"
+unemployment[33,1] <- "myanmar"
+unemployment[45,1] <- "republic of congo"
+unemployment[48,1] <- "ivory coast"
+unemployment[53,1] <- "czech republic"
+unemployment[64,1] <- "swaziland"
+unemployment[106,1] <- "north korea"
+unemployment[107,1] <- "south korea"
+unemployment[175,1] <- "republic of serbia"
+unemployment[192,1] <- "united republic of tanzania"
+unemployment[194,1] <- "east timor"
+unemployment[207,1] <- "united states of america"
+```
+
+
+```{r echo=FALSE}
+suppressWarnings(country_choropleth(unemployment))
+```
+
+We see that Denmark, Japan, and Madagascar have some of the lowest unemployment rates, while Brazil, North Korea, Afghanistan, and parts of Africa have high unemployment rates.
+
+<br>
+
+Using the dataframe ref to tidy the data by continent. The single country beloning to "Seven seas (open ocean)" was removed for visual purposes.
+
+```{r}
+unemployment_continent <- merge(unemployment, ref)[,-1]
+
+index_remove <- NULL
+for(i in seq(nrow(unemployment_continent))){
+	if(unemployment_continent[i,2] == "Seven seas (open ocean)"){
+		index_remove <- c(index_remove, i)
+		}
+	}
+
+unemployment_continent <- as_tibble(unemployment_continent[-index_remove,])
+unemployment_continent %>% ggplot(aes(continent, value)) + labs(x="", y="Unemployment Rate") + geom_boxplot() + geom_beeswarm()
+```
+
+We see that Africa has the highest unemployment rates, though it has a very large spread.
+
+
+```{r}
+head(unemployment[order(unemployment[,2], decreasing=TRUE),])
+tail(unemployment[order(unemployment[,2], decreasing=TRUE),])
+```
+
+Unemployment rates range anywhere from 77% to less than 1% of the population. Even though Africa has some of the highest population growth rates, it also shares both low GDP per capita and high unemployment rates.
+
+<br>
+
+Scraping Gini index coefficient data and tidying it to plot on choropleth map.
+
+```{r}
+url_6 <- "https://www.cia.gov/the-world-factbook/field/gini-index-coefficient-distribution-of-family-income/country-comparison"
+gini_index_tables <- url_6 %>% read_html() %>% html_nodes("table") %>% html_table()
+gini_index <- data.frame(gini_index_tables[[1]][2], gini_index_tables[[1]][3])
+
+colnames(gini_index) <- c("region", "value")
+gini_index[,1] <- tolower(gini_index[,1])
+gini_index <- gini_index[order(gini_index),]
+gini_index <- na.omit(gini_index)
+
+gini_index[21,1] <- "myanmar"
+gini_index[33,1] <- "democratic republic of the congo"
+gini_index[34,1] <- "republic of congo"
+gini_index[36,1] <- "ivory coast"
+gini_index[39,1] <- "czech republic"
+gini_index[47,1] <- "swaziland"
+gini_index[55,1] <- "gambia"
+gini_index[64,1] <- "guinea bissau"
+gini_index[84,1] <- "south korea"
+gini_index[135,1] <- "republic of serbia"
+gini_index[151,1] <- "united republic of tanzania"
+gini_index[153,1] <- "east timor"
+gini_index[164,1] <- "united states of america"
+```
+
+
+```{r echo=FALSE}
+suppressWarnings(country_choropleth(gini_index))
+```
+
+From the plot, we can see that Brazil and the lower parts of Africa share the highest inequality.
+
+<br>
+
+Using the dataframe ref to tidy the data by continent. The single country beloning to "Seven seas (open ocean)" was removed for visual purposes.
+
+```{r}
+gini_index_continent <- merge(gini_index, ref)[,-1]
+
+index_remove <- NULL
+for(i in seq(nrow(gini_index_continent))){
+	if(gini_index_continent[i,2] == "Seven seas (open ocean)"){
+		index_remove <- c(index_remove, i)
+		}
+	}
+
+gini_index_continent <- as_tibble(gini_index_continent[-index_remove,])
+gini_index_continent %>% ggplot(aes(continent, value)) + labs(x="", y="Gini Index") + geom_boxplot() + geom_beeswarm()
+```
+
+Europe has the lowest median income inequality while Africa has the highest. However, Africa and North America both have notably large spreads.
+
+
+```{r}
+head(gini_index[order(gini_index[,2], decreasing=TRUE),])
+tail(gini_index[order(gini_index[,2], decreasing=TRUE),])
+```
+
+Excluding the outlier of Jersey, Gini coefficient ranges anywhere from over 60 to less than 25. The top 5 income inequalities are all found in Africa.
+
+<br>
+
+We merge the data into a single data frame to study the relationships between our selected ecnomic features.
+
+```{r}
+pop_density <- data.frame(pop_density[,1], pop_density[,2])
+colnames(pop_density) <- c("Country", "Pop_Density")
+
+pop_growth <- data.frame(pop_growth[,1], pop_growth[,2])
+colnames(pop_growth) <- c("Country", "Pop_Growth")
+
+life_expectancy <- data.frame(life_expectancy[,1], life_expectancy[,2])
+colnames(life_expectancy) <- c("Country", "Life_Exp")
+
+real_gdp <- data.frame(real_gdp[,1], real_gdp[,2])
+colnames(real_gdp) <- c("Country", "Real_GDP")
+
+unemployment <- data.frame(unemployment[,1], unemployment[,2])
+colnames(unemployment) <- c("Country", "Unemployment")
+
+gini_index <- data.frame(gini_index[,1], gini_index[,2])
+colnames(gini_index) <- c("Country", "Gini_Index")
+
+master <- Reduce(function(x,y) merge(x, y, all=TRUE), list(pop_density, pop_growth, life_expectancy, real_gdp, unemployment, gini_index))
+master <- master[complete.cases(master),]
+head(master)
+```
+
+
+```{r}
+ggcorr(master[,-1], label=TRUE)
+```
+
+From the plot, we see that real GDP per capita and life expectancy at birth have a strong postive correlation. On the other hand, life expectancy at birth has a moderate negative correlation with population growth, unemployment rate, and Gini coefficient index. We also gather that real GDP per capita has a moderate negative correlation with population growth.
+
+
+```{r}
+summary(lm(Life_Exp ~ Pop_Density + Pop_Growth + Real_GDP + Unemployment + Gini_Index, data=master))
+```
+
+Fitting life expectancy at birth as response, we find that population growth, real GDP per capita, and unemployment rate are significant economic predictors. This matches with both the correlation plot and the choropleth map results, since we found Africa to share many extreme traits such as high population growth. Given that life expectancy at birth is impacted by the state of the economy, regions should continue to develop to improve life conditions in the long run.
